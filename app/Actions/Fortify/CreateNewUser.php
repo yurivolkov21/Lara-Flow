@@ -5,6 +5,7 @@ namespace App\Actions\Fortify;
 use App\Actions\Teams\CreateTeam;
 use App\Concerns\PasswordValidationRules;
 use App\Concerns\ProfileValidationRules;
+use App\Enums\Locale;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -29,6 +30,7 @@ class CreateNewUser implements CreatesNewUsers
         Validator::make($input, [
             ...$this->profileRules(),
             'password' => $this->passwordRules(),
+            'timezone' => ['nullable', 'string', 'timezone:all'],
         ])->validate();
 
         return DB::transaction(function () use ($input) {
@@ -36,6 +38,8 @@ class CreateNewUser implements CreatesNewUsers
                 'name' => $input['name'],
                 'email' => $input['email'],
                 'password' => $input['password'],
+                'timezone' => $input['timezone'] ?? 'UTC',
+                'locale' => Locale::tryFrom(app()->getLocale()) ?? Locale::English,
             ]);
 
             $this->createTeam->handle($user, $user->name."'s Team", isPersonal: true);
