@@ -2,7 +2,12 @@
 
 namespace App\Http\Middleware;
 
+use App\Http\Resources\ProjectResource;
+use App\Models\User;
+use App\Queries\TaskViewQuery;
+use App\Support\Translations;
 use Illuminate\Http\Request;
+use Inertia\Inertia;
 use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
@@ -36,6 +41,7 @@ class HandleInertiaRequests extends Middleware
     public function share(Request $request): array
     {
         $user = $request->user();
+        $locale = app()->getLocale();
 
         return [
             ...parent::share($request),
@@ -43,9 +49,34 @@ class HandleInertiaRequests extends Middleware
             'auth' => [
                 'user' => $user,
             ],
+            'locale' => $locale,
+            'translations' => Inertia::once(fn () => Translations::for($locale))->as("translations.{$locale}"),
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
             'currentTeam' => fn () => $user?->currentTeam ? $user->toUserTeam($user->currentTeam) : null,
             'teams' => fn () => $user?->toUserTeams(includeCurrent: true) ?? [],
+            'sidebar' => fn () => $user ? $this->sidebar($request, $user) : null,
+        ];
+    }
+
+    /**
+     * Get the projects and task counts shown in the app sidebar.
+     *
+     * @return array{projects: array<int, mixed>, archivedProjects: array<int, mixed>, counts: array{today: int, overdue: int, inbox: int}}|null
+     */
+    protected function sidebar(Request $request, User $user): ?array
+    {
+        $team = $user->currentTeam;
+
+        if (! $team) {
+            return null;
+        }
+
+        $projects = $team->projects()->orderBy('position')->orderBy('id')->get();
+
+        return [
+            'projects' => ProjectResource::collection($projects->whereNull('archived_at')->values())->resolve($request),
+            'archivedProjects' => ProjectResource::collection($projects->whereNotNull('archived_at')->values())->resolve($request),
+            'counts' => (new TaskViewQuery($team, $user->today()))->counts(),
         ];
     }
 }
